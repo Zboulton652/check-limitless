@@ -114,6 +114,9 @@ export type Database = {
           amount: number
           period_start: string
           period_end: string
+          type: "immediate" | "deferred"
+          payout_method: string
+          status: string
           paid_at: string | null
           created_at: string
         }
@@ -122,8 +125,15 @@ export type Database = {
           amount: number
           period_start: string
           period_end: string
+          type?: "immediate" | "deferred"
+          payout_method?: string
+          status?: string
         }
         Update: {
+          amount?: number
+          type?: "immediate" | "deferred"
+          payout_method?: string
+          status?: string
           paid_at?: string | null
         }
       }
