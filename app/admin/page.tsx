@@ -254,6 +254,57 @@ export default function AdminPage() {
     }
   }
 
+  // Delete Competition
+  const deleteCompetition = async (competitionId: string, title: string) => {
+    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      console.log('Attempting to delete competition:', competitionId)
+      
+      // First check if there are any entries for this competition
+      const { data: entries, error: entriesError } = await supabase
+        .from("entries")
+        .select("id")
+        .eq("competition_id", competitionId)
+      
+      if (entriesError) {
+        console.error('Error checking entries:', entriesError)
+        throw entriesError
+      }
+
+      if (entries && entries.length > 0) {
+        showMessage(`Cannot delete competition "${title}" because it has ${entries.length} entries. Please contact support to handle this manually.`, true)
+        return
+      }
+
+      // Proceed with deletion
+      const { error, data } = await supabase
+        .from("competitions")
+        .delete()
+        .eq("id", competitionId)
+        .select() // This will return the deleted rows
+
+      console.log('Delete result:', { error, data })
+
+      if (error) {
+        console.error('Delete error:', error)
+        throw error
+      }
+
+      if (!data || data.length === 0) {
+        throw new Error('No rows were deleted. The competition may not exist or you may not have permission.')
+      }
+
+      showMessage(`Competition "${title}" deleted successfully!`)
+      fetchCompetitions()
+    } catch (error: any) {
+      console.error('Delete competition error:', error)
+      showMessage(error.message || "Failed to delete competition", true)
+    }
+  }
+
   // Close Competition Draw
   const closeCompetitionDraw = async (competitionId: string) => {
     try {
@@ -265,24 +316,6 @@ export default function AdminPage() {
       fetchCompetitions()
     } catch (error: any) {
       showMessage(error.message || "Failed to close competition draw", true)
-    }
-  }
-
-  // Delete Competition
-  const deleteCompetition = async (competitionId: string, title: string) => {
-    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
-      return
-    }
-
-    try {
-      const { error } = await supabase.from("competitions").delete().eq("id", competitionId)
-
-      if (error) throw error
-
-      showMessage("Competition deleted successfully!")
-      fetchCompetitions()
-    } catch (error: any) {
-      showMessage(error.message || "Failed to delete competition", true)
     }
   }
 
