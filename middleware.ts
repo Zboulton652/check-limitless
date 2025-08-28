@@ -2,80 +2,108 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function middleware(request: NextRequest) {
-  // Create a response object that we can modify
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+  let supabaseResponse = NextResponse.next({
+    request,
   })
 
-  // Create the Supabase client
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  // Check if environment variables are available
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Missing Supabase environment variables:", {
+      url: supabaseUrl ? "present" : "missing",
+      key: supabaseAnonKey ? "present" : "missing",
+    })
+
+    // If accessing protected routes without proper config, redirect to login
+    if (request.nextUrl.pathname.startsWith("/dashboard") || request.nextUrl.pathname.startsWith("/admin")) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = "/auth/login"
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    return supabaseResponse
+  }
+
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
-        get(name) {
-          return request.cookies.get(name)?.value
+        getAll() {
+          return request.cookies.getAll()
         },
-        set(name, value, options) {
-          // If the cookie is updated, update the response headers
-          request.cookies.set({
-            name,
-            value,
-            ...options,
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value)
           })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
+          supabaseResponse = NextResponse.next({
+            request,
           })
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-        },
-        remove(name, options) {
-          // If the cookie is removed, update the response headers
-          request.cookies.delete({
-            name,
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.delete({
-            name,
-            ...options,
+          cookiesToSet.forEach(({ name, value, options }) => {
+            supabaseResponse.cookies.set(name, value, options)
           })
         },
       },
-    },
-  )
+    })
 
-  // Refresh the session if it exists
-  await supabase.auth.getSession()
-
-  // For protected routes, check if the user is authenticated
-  const protectedRoutes = ["/dashboard", "/admin"]
-
-  if (protectedRoutes.some((route) => request.nextUrl.pathname.startsWith(route))) {
+    // This will refresh session if expired - required for Server Components
     const {
-      data: { session },
-    } = await supabase.auth.getSession()
+      data: { user },
+      error,
+    } = await supabase.auth.getUser()
 
-    if (!session) {
-      // Redirect to login if not authenticated
-      const redirectUrl = new URL("/auth/login", request.url)
-      redirectUrl.searchParams.set("redirect", request.nextUrl.pathname)
+    // Protected routes that require authentication
+    const protectedRoutes = ["/dashboard", "/admin", "/competitions", "/dividends"]
+    const isProtectedRoute = protectedRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
+
+    // If accessing protected route without authentication, redirect to login
+    if (isProtectedRoute && (!user || error)) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = "/auth/login"
+      redirectUrl.searchParams.set("redirectTo", request.nextUrl.pathname)
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    // Admin-only routes
+    if (request.nextUrl.pathname.startsWith("/admin") && user) {
+      try {
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .single()
+
+        if (userError || userData?.role !== "admin") {
+          const redirectUrl = request.nextUrl.clone()
+          redirectUrl.pathname = "/dashboard"
+          return NextResponse.redirect(redirectUrl)
+        }
+      } catch (adminCheckError) {
+        console.error("Error checking admin status:", adminCheckError)
+        const redirectUrl = request.nextUrl.clone()
+        redirectUrl.pathname = "/dashboard"
+        return NextResponse.redirect(redirectUrl)
+      }
+    }
+
+    // If user is authenticated and trying to access auth pages, redirect to dashboard
+    if (user && request.nextUrl.pathname.startsWith("/auth/")) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = "/dashboard"
+      return NextResponse.redirect(redirectUrl)
+    }
+  } catch (middlewareError) {
+    console.error("Middleware error:", middlewareError)
+
+    // If there's an error and user is trying to access protected routes, redirect to login
+    if (request.nextUrl.pathname.startsWith("/dashboard") || request.nextUrl.pathname.startsWith("/admin")) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = "/auth/login"
       return NextResponse.redirect(redirectUrl)
     }
   }
 
-  return response
+  return supabaseResponse
 }
 
 export const config = {
@@ -85,8 +113,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public files (public assets)
+     * Feel free to modify this pattern to include more paths.
      */
-    "/((?!_next/static|_next/image|favicon.ico|images|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

@@ -1,10 +1,14 @@
 import { createBrowserClient } from "@supabase/ssr"
 import type { Database } from "./types"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase environment variables:')
+  console.error('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'present' : 'missing')
+  console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'present' : 'missing')
+  
   throw new Error(
     "Missing Supabase environment variables. Please check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.",
   )
@@ -15,7 +19,7 @@ let supabaseInstance: ReturnType<typeof createBrowserClient<Database>> | null = 
 
 export function createClient() {
   if (!supabaseInstance) {
-    supabaseInstance = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
+    supabaseInstance = createBrowserClient<Database>(supabaseUrl!, supabaseAnonKey!)
   }
   return supabaseInstance
 }
